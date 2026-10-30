@@ -1,0 +1,79 @@
+# Builds a Docker image of this fork and pushes it to ghcr.io/<owner>/<repo>, for testing branches on a server.
+# Authentication uses the workflow's GITHUB_TOKEN, so no secrets are needed.
+name: "Fork: Docker image to GHCR"
+on:
+  push:
+    branches:
+      - ghcr-waveform
+  workflow_dispatch:
+
+concurrency:
+  group: fork-ghcr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build and push image
+    if: github.repository != 'navidrome/navidrome'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine version info
+        id: version
+        run: |
+          GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$GIT_TAG" ]; then
+            GIT_TAG=${GIT_TAG}-SNAPSHOT
+          fi
+          echo "git_tag=$GIT_TAG" >> $GITHUB_OUTPUT
+          echo "git_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          # Runner IPs are shared, so anonymous base image pulls get rate-limited.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The image source label links the package to this repository instead of upstream.
+      - name: Extract metadata for Docker image
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=sha
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ steps.version.outputs.git_sha }}
+            GIT_TAG=${{ steps.version.outputs.git_tag }}
