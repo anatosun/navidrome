@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/waveform"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/subsonic/responses"
@@ -29,6 +31,8 @@ var _ = Describe("GetWaveform", func() {
 	var mockRepo *tests.MockMediaFileRepo
 
 	BeforeEach(func() {
+		DeferCleanup(configtest.SetupConfig())
+		conf.Server.EnableWaveform = true
 		mockRepo = tests.CreateMockMediaFileRepo()
 		mockRepo.SetData(model.MediaFiles{{ID: "1", Duration: 12.5}})
 		ds := &tests.MockDataStore{MockedMediaFile: mockRepo}
@@ -75,5 +79,26 @@ var _ = Describe("GetWaveform", func() {
 		wf.err = errors.New("boom")
 		_, err := router.GetWaveform(newGetRequest("id=1"))
 		Expect(err).To(MatchError("boom"))
+	})
+
+	Context("when waveforms are disabled", func() {
+		BeforeEach(func() {
+			conf.Server.EnableWaveform = false
+		})
+
+		It("returns a Subsonic error without generating anything", func() {
+			_, err := router.GetWaveform(newGetRequest("id=1"))
+			var subErr subError
+			Expect(errors.As(err, &subErr)).To(BeTrue())
+			Expect(subErr.code).To(Equal(responses.ErrorGeneric))
+			Expect(wf.samples).To(BeZero())
+		})
+	})
+
+	It("returns a Subsonic error when no waveform service is configured", func() {
+		router.waveform = nil
+		_, err := router.GetWaveform(newGetRequest("id=1"))
+		var subErr subError
+		Expect(errors.As(err, &subErr)).To(BeTrue())
 	})
 })
