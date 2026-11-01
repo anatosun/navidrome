@@ -131,8 +131,8 @@ const getTopSongs = (artist, count = 50) => {
   return httpClient(url('getTopSongs', null, { artist, count }))
 }
 
-const getWaveform = (id, samples) => {
-  return httpClient(url('getWaveform', id, { samples }))
+const getWaveform = (id, samples, options) => {
+  return httpClient(url('getWaveform', id, { samples }), options)
 }
 
 const streamUrl = (id, options) => {
